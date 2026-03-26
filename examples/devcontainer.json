@@ -1,0 +1,24 @@
+{
+  // HTTP fallback — only use when the stdio approach (VS Code user settings)
+  // is not viable (e.g. VS Code for the Web, non-VS-Code MCP clients).
+  //
+  // Prerequisites:
+  //   1. Run on the host: .\start-workiq-bridge.ps1 -ExposeToDocker -Firewall
+  //   2. Run on the host: .\start-workiq-bridge.ps1 -ExposeToDocker
+  //
+  // The bridge binds to 0.0.0.0 only when -ExposeToDocker is passed; the
+  // firewall rule is scoped to Docker's bridge network (172.16.0.0/12).
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "mcp": {
+          "servers": {
+            "workiq": {
+              "url": "http://host.docker.internal:3100/mcp"
+            }
+          }
+        }
+      }
+    }
+  }
+}

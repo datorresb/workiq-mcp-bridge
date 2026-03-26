@@ -1,0 +1,19 @@
+{
+  // Add this block to your VS Code *user* settings.json
+  // (Ctrl+Shift+P → "Preferences: Open User Settings (JSON)")
+  //
+  // VS Code will spawn WorkIQ MCP as a host-side stdio process and proxy its
+  // tools into the devcontainer automatically — no ports, no firewall rules.
+  //
+  // WorkIQ authentication uses the registration already present on your
+  // Windows host; the devcontainer never needs its own credentials.
+  "mcp": {
+    "servers": {
+      "workiq": {
+        "type": "stdio",
+        "command": "npx",
+        "args": ["-y", "@microsoft/workiq", "mcp"]
+      }
+    }
+  }
+}
