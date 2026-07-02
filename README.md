@@ -1,29 +1,86 @@
 # workiq-mcp-bridge
 
-Expose the stdio-only [WorkIQ MCP](https://www.npmjs.com/package/@microsoft/workiq) server to devcontainers via [supergateway](https://github.com/supercorp-ai/supergateway).
+Run the stdio-only [WorkIQ MCP](https://www.npmjs.com/package/@microsoft/workiq) server as an HTTP endpoint your **devcontainers** — and your host VS Code — can share, via [supergateway](https://github.com/supercorp-ai/supergateway).
 
-WorkIQ requires host machine registration for authentication. This script bridges it to an HTTP endpoint so devcontainers can connect through `host.docker.internal` — no extra registration needed.
+WorkIQ authenticates against your registered Windows host and speaks stdio only. This bridge wraps it and exposes streamable HTTP on `localhost:3100/mcp`, so a container can reach it through `host.docker.internal` with no separate registration.
+
+Two ways to run the bridge:
+
+| | [Desktop app](#desktop-app-recommended) | [PowerShell script](#powershell-script) |
+|---|---|---|
+| Best for | Daily use — click to start, lives in the tray | Headless / CI / quick one-off |
+| Terminal | Not needed | Stays open while running |
+| Watchdog | Restarts on crash | No |
+| Health / logs | Live in a window | `-Test` on demand |
+
+---
+
+## Where does the WorkIQ MCP run?
+
+Always on your **Windows host** — never inside the container. The bridge launches it (`npx @microsoft/workiq mcp`) as a child process and translates its stdio to HTTP. What changes is only how you connect:
 
 ```
-Windows Host (port 3100)          DevContainer
-┌──────────────────────┐          ┌─────────────────────────┐
-│ supergateway          │          │ VS Code + Copilot Chat  │
-│   wraps WorkIQ MCP   │◄────────│   connects via HTTP     │
-│   stdio → HTTP       │          │   host.docker.internal  │
-└──────────────────────┘          └─────────────────────────┘
+                      Windows host (:3100)
+                 ┌───────────────────────────┐
+                 │  bridge (app or script)   │
+                 │    └─ supergateway        │
+                 │         └─ workiq mcp     │   stdio <-> HTTP
+                 └───────────────────────────┘
+                    ^                     ^
+     localhost:3100 │                     │ host.docker.internal:3100
+        ┌───────────┴──────┐   ┌──────────┴────────────┐
+        │ VS Code (host)   │   │ VS Code (devcontainer)│
+        └──────────────────┘   └───────────────────────┘
 ```
 
-## Quick Start
+- **Host VS Code** connects to `http://localhost:3100/mcp`.
+- **A devcontainer** connects to `http://host.docker.internal:3100/mcp`.
+
+One running bridge serves both.
+
+---
+
+## Desktop app (recommended)
+
+A minimalist Windows tray app (Electron) under [`app/`](app/) that runs and monitors the bridge:
+
+- **Start/stop on demand** — no terminal to keep open; lives in the system tray.
+- **Watchdog** — restarts the bridge if it crashes; a manual stop stays stopped.
+- **Live status, health, and logs** in one window.
+- **Connect panel** — copy the host or devcontainer MCP snippet with one click.
+- **Doctor** — checks Node/npx, WorkIQ registration, firewall, and port; adds the firewall rule for you.
+- **Toast notifications** when the bridge goes down.
+
+### Run from source
+
+```powershell
+cd app
+npm install
+npm start
+```
+
+### Build an installer / portable exe
+
+```powershell
+cd app
+npm run dist
+```
+
+Outputs `WorkIQ MCP Bridge Setup <version>.exe` (installer) and `WorkIQ MCP Bridge-<version>-portable.exe` under `app/dist-package/`. The build is unsigned, so Windows SmartScreen may warn on first run.
+
+---
+
+## PowerShell script
+
+The original single-file bridge — no build step, good for headless use.
 
 ### 1. First-time setup (once)
 
-Open the firewall for Docker:
+Open the firewall for Docker (auto-elevates — accept the UAC prompt):
 
 ```powershell
 .\start-workiq-bridge.ps1 -Firewall
 ```
-
-This auto-elevates to Administrator — accept the UAC prompt.
 
 ### 2. Start the bridge
 
@@ -31,11 +88,11 @@ This auto-elevates to Administrator — accept the UAC prompt.
 .\start-workiq-bridge.ps1
 ```
 
-Leave this terminal open. The bridge runs until you close it or press `Ctrl+C`.
+Leave the terminal open. Runs until you close it or press `Ctrl+C`.
 
 ### 3. Configure your devcontainer
 
-Add this to your `devcontainer.json`:
+Add to `devcontainer.json`, then rebuild the container:
 
 ```jsonc
 {
@@ -44,9 +101,7 @@ Add this to your `devcontainer.json`:
       "settings": {
         "mcp": {
           "servers": {
-            "workiq": {
-              "url": "http://host.docker.internal:3100/mcp"
-            }
+            "workiq": { "url": "http://host.docker.internal:3100/mcp" }
           }
         }
       }
@@ -55,9 +110,9 @@ Add this to your `devcontainer.json`:
 }
 ```
 
-Rebuild your container and WorkIQ MCP tools will be available in Copilot Chat.
+For host VS Code, use `http://localhost:3100/mcp` instead.
 
-## Commands
+### Commands
 
 | Command | Description |
 |---------|-------------|
@@ -65,21 +120,26 @@ Rebuild your container and WorkIQ MCP tools will be available in Copilot Chat.
 | `.\start-workiq-bridge.ps1 -Port 4000` | Use a custom port |
 | `.\start-workiq-bridge.ps1 -Stop` | Stop the bridge |
 | `.\start-workiq-bridge.ps1 -Test` | Verify the bridge is healthy |
-| `.\start-workiq-bridge.ps1 -Firewall` | Add Windows Firewall rule (once) |
+| `.\start-workiq-bridge.ps1 -Firewall` | Add the Windows Firewall rule (once) |
 
-## How It Works
-
-- **supergateway** wraps WorkIQ's stdio MCP protocol and exposes it as streamable HTTP on `localhost:3100/mcp`
-- Docker containers reach the host via `host.docker.internal`
-- A Windows Firewall inbound rule allows traffic from Docker's virtual network
-- Authentication stays on your registered Windows host — the container never needs its own registration
+---
 
 ## Requirements
 
-- Windows with Docker Desktop
-- Node.js (for `npx`)
-- WorkIQ MCP registered on your machine (`npx @microsoft/workiq`)
-- A devcontainer
+- Windows with Node.js (for `npx`)
+- WorkIQ registered on your machine — run `npx @microsoft/workiq` once
+- Docker Desktop — only for the devcontainer path
+
+## Repository layout
+
+```
+start-workiq-bridge.ps1   # the script bridge
+app/                       # the desktop app (Electron + TypeScript)
+  src/main/                #   process supervision, health, tray, logs
+  src/renderer/            #   single-window UI
+  smoke/                   #   staged integration checks
+docs/plans/                # implementation plan
+```
 
 ## License
 
