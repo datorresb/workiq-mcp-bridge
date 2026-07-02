@@ -44,12 +44,23 @@ One running bridge serves both.
 
 A minimalist Windows tray app (Electron) under [`app/`](app/) that runs and monitors the bridge:
 
+![WorkIQ MCP Bridge — start the bridge, watch live health and logs, then copy a connect snippet](app/build/demo.gif)
+
 - **Start/stop on demand** — no terminal to keep open; lives in the system tray.
 - **Watchdog** — restarts the bridge if it crashes; a manual stop stays stopped.
 - **Live status, health, and logs** in one window.
-- **Connect panel** — copy the host or devcontainer MCP snippet with one click.
+- **How to connect** — one click reveals the host or devcontainer MCP snippet, ready to copy.
 - **Doctor** — checks Node/npx, WorkIQ registration, firewall, and port; adds the firewall rule for you.
 - **Toast notifications** when the bridge goes down.
+
+### Download
+
+Grab the latest prebuilt `.exe` from the [**Releases**](https://github.com/datorresb/workiq-mcp-bridge/releases/latest) page:
+
+- **Installer** — `WorkIQ MCP Bridge Setup <version>.exe`; installs to your user profile with a Start-menu shortcut.
+- **Portable** — `WorkIQ MCP Bridge-<version>-portable.exe`; run it directly, no install.
+
+The build is unsigned, so Windows SmartScreen may warn on first run — choose **More info → Run anyway**.
 
 ### Run from source
 
@@ -66,7 +77,7 @@ cd app
 npm run dist
 ```
 
-Outputs `WorkIQ MCP Bridge Setup <version>.exe` (installer) and `WorkIQ MCP Bridge-<version>-portable.exe` under `app/dist-package/`. The build is unsigned, so Windows SmartScreen may warn on first run.
+Outputs `WorkIQ MCP Bridge Setup <version>.exe` (installer) and `WorkIQ MCP Bridge-<version>-portable.exe` under `app/dist-package/`.
 
 ---
 
