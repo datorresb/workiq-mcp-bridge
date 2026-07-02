@@ -1,0 +1,56 @@
+{
+  "name": "workiq-bridge-manager",
+  "version": "1.0.0",
+  "description": "WorkIQ MCP Bridge Manager — minimalist Windows tray app to run and monitor the WorkIQ MCP bridge.",
+  "author": "datorresb",
+  "license": "MIT",
+  "main": "dist/main/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "electron .",
+    "dev": "tsc -p tsconfig.json && electron .",
+    "dist": "npm run build && electron-builder",
+    "dist:nsis": "npm run build && electron-builder --win nsis",
+    "dist:portable": "npm run build && electron-builder --win portable"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.0",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8",
+    "png-to-ico": "^2.1.8",
+    "sharp": "^0.33.5",
+    "typescript": "^5.6.0"
+  },
+  "dependencies": {
+    "tree-kill": "^1.2.2"
+  },
+  "build": {
+    "appId": "com.datorresb.workiq-bridge",
+    "productName": "WorkIQ MCP Bridge",
+    "directories": {
+      "output": "dist-package",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "src/renderer/**/*"
+    ],
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ],
+      "icon": "build/icon.ico",
+      "requestedExecutionLevel": "asInvoker"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": false,
+      "createStartMenuShortcut": true
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-portable.${ext}"
+    }
+  }
+}

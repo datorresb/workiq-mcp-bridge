@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WorkIQ MCP Bridge</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="app">
+    <!-- port conflict banner -->
+    <div id="conflict" class="banner hidden">
+      <span id="conflict-text">Port in use.</span>
+      <span class="banner-actions">
+        <button id="conflict-free" class="btn small">Free &amp; start</button>
+        <button id="conflict-dismiss" class="btn small ghost">Dismiss</button>
+      </span>
+    </div>
+
+    <!-- header: status + start/stop -->
+    <section class="hrow">
+      <div class="status">
+        <span id="dot" class="dot stopped"></span>
+        <div>
+          <div id="status-name" class="sname">Stopped</div>
+          <div id="endpoint" class="endpoint">http://localhost:3100/mcp</div>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button id="connect-btn" class="btn ghost">🔌 Connect</button>
+        <button id="toggle-btn" class="btn start">▶ Start</button>
+      </div>
+    </section>
+
+    <!-- metrics -->
+    <section class="cards">
+      <div class="card"><div class="k">Health</div><div id="m-health" class="v">—</div></div>
+      <div class="card"><div class="k">Uptime</div><div id="m-uptime" class="v">—</div></div>
+      <div class="card"><div class="k">Clients</div><div id="m-clients" class="v">n/a</div></div>
+      <div class="card"><div class="k">Requests</div><div id="m-requests" class="v">n/a</div></div>
+    </section>
+
+    <!-- logs -->
+    <section class="logs-wrap">
+      <div class="logs-head">
+        <span class="lbl">Live logs</span>
+        <button id="copy-logs" class="btn small ghost">⧉ Copy</button>
+      </div>
+      <div id="logs" class="logs"></div>
+    </section>
+
+    <!-- footer controls -->
+    <section class="footer">
+      <label class="chk"><input type="checkbox" id="notifications" /> Notifications</label>
+      <span class="spacer"></span>
+      <label class="port">Port <input type="number" id="port" min="1" max="65535" /></label>
+      <button id="doctor-btn" class="btn small ghost">🩺 Doctor</button>
+    </section>
+  </main>
+
+  <!-- Connect panel -->
+  <div id="connect-overlay" class="overlay hidden">
+    <div class="sheet">
+      <div class="sheet-head">
+        <span class="sheet-title">Connect to the bridge</span>
+        <button id="connect-close" class="x">✕</button>
+      </div>
+      <div id="connect-run" class="sheet-run">● Bridge status shown in the main window</div>
+
+      <div class="block">
+        <div class="block-label"><span class="chip host">Host</span> VS Code on Windows</div>
+        <pre id="snippet-host" class="code"></pre>
+        <button class="btn small copy" data-target="snippet-host">⧉ Copy</button>
+      </div>
+
+      <div class="block">
+        <div class="block-label"><span class="chip cont">Devcontainer</span> inside Docker</div>
+        <pre id="snippet-cont" class="code"></pre>
+        <button class="btn small copy" data-target="snippet-cont">⧉ Copy</button>
+      </div>
+
+      <div class="steps"><b>1.</b> Copy the snippet &nbsp;·&nbsp; <b>2.</b> Paste into your MCP config &nbsp;·&nbsp; <b>3.</b> Reload the window</div>
+    </div>
+  </div>
+
+  <!-- Doctor panel -->
+  <div id="doctor-overlay" class="overlay hidden">
+    <div class="sheet">
+      <div class="sheet-head">
+        <span class="sheet-title">First-run Doctor</span>
+        <button id="doctor-close" class="x">✕</button>
+      </div>
+      <div id="doctor-list" class="doctor-list"></div>
+      <div class="sheet-foot">
+        <button id="doctor-rerun" class="btn small ghost">Re-run</button>
+        <button id="doctor-firewall" class="btn small">Fix firewall</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="connect.js"></script>
+  <script src="renderer.js"></script>
+</body>
+</html>
