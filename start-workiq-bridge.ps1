@@ -1,4 +1,4 @@
-# powershell -File C:\Users\davidto\Desktop\WorkIQ\scripts\start-workiq-bridge.ps1
+# Usage: powershell -File .\start-workiq-bridge.ps1 [-Port <n>] [-Stop] [-Test] [-Firewall]
 <#
 .SYNOPSIS
     Exposes WorkIQ MCP to devcontainers via supergateway (stdio → streamable HTTP).
@@ -110,13 +110,14 @@ if ($Test) {
     try { $tcp.Connect("127.0.0.1", $Port); $tcp.Close(); Write-Host "  Port $Port is open." -ForegroundColor Green }
     catch { Write-Host "  Port $Port is not open." -ForegroundColor Red; $ok = $false }
 
-    # MCP handshake
+    # MCP handshake (streamableHttp requires Accept: application/json, text/event-stream)
     try {
-        $body = '{"jsonrpc":"2.0","method":"initialize","params":{"capabilities":{}},"id":1}'
-        $r = Invoke-WebRequest -Uri "http://localhost:$Port/mcp" -Method POST -Body $body -ContentType "application/json" -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
+        $body = '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{}},"id":1}'
+        $headers = @{ Accept = "application/json, text/event-stream" }
+        $r = Invoke-WebRequest -Uri "http://localhost:$Port/mcp" -Method POST -Body $body -ContentType "application/json" -Headers $headers -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
         if ($r.StatusCode -eq 200) { Write-Host "  MCP endpoint responds." -ForegroundColor Green }
         else { Write-Host "  MCP endpoint returned $($r.StatusCode)." -ForegroundColor Red; $ok = $false }
-    } catch { Write-Host "  MCP endpoint unreachable." -ForegroundColor Red; $ok = $false }
+    } catch { Write-Host "  MCP endpoint unreachable: $($_.Exception.Message)" -ForegroundColor Red; $ok = $false }
 
     if ($ok) { Write-Host "`nBridge is healthy." -ForegroundColor Green } else { Write-Host "`nBridge has issues." -ForegroundColor Red }
     exit ([int](-not $ok))
