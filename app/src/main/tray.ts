@@ -1,4 +1,4 @@
-import { Tray, Menu, nativeImage, NativeImage, BrowserWindow } from "electron";
+import { app, Tray, Menu, nativeImage, NativeImage, BrowserWindow } from "electron";
 import * as path from "path";
 import { BridgeStatus } from "./supervisor";
 
@@ -11,7 +11,7 @@ function iconStateFor(status: BridgeStatus): IconState {
 }
 
 function isActive(status: BridgeStatus): boolean {
-  return status === "running" || status === "unhealthy" || status === "restarting";
+  return status === "starting" || status === "running" || status === "unhealthy" || status === "restarting";
 }
 
 export interface TrayController {
@@ -27,7 +27,7 @@ export interface TrayHandlers {
 
 export function createTray(win: BrowserWindow, handlers: TrayHandlers): TrayController {
   const iconPath = (name: string): string =>
-    path.join(__dirname, "..", "..", "build", `${name}.ico`);
+    path.join(app.isPackaged ? path.join(process.resourcesPath, "tray") : path.join(app.getAppPath(), "build"), `${name}.ico`);
 
   const icons: Record<IconState, NativeImage> = {
     running: nativeImage.createFromPath(iconPath("tray-green")),

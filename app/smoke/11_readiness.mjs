@@ -8,6 +8,49 @@ import { runInNewContext } from "node:vm";
 const require = createRequire(import.meta.url);
 const ts = require("typescript");
 
+for (const packaged of [false, true]) {
+  test(`tray icons resolve in ${packaged ? "packaged" : "development"} mode and Starting offers Stop`, () => {
+    const path = require("node:path");
+    const root = path.resolve("tray-test");
+    const images = [];
+    let menu;
+    let stopped = false;
+    const exports = {};
+    const source = readFileSync(new URL("../src/main/tray.ts", import.meta.url), "utf8");
+    const expected = path.join(root, packaged ? "resources/tray" : "build");
+    class FakeTray extends EventEmitter {
+      setImage(image) { assert.ok(images.includes(image)); }
+      setToolTip() {}
+      setContextMenu(value) { menu = value; }
+      destroy() {}
+    }
+    runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText, {
+      exports,
+      process: { resourcesPath: path.join(root, "resources") },
+      require: (name) => name === "path" ? path : {
+        app: { isPackaged: packaged, getAppPath: () => root },
+        Tray: FakeTray,
+        Menu: { buildFromTemplate: (items) => items },
+        nativeImage: { createFromPath: (icon) => {
+          assert.equal(path.dirname(icon), expected);
+          const image = { name: path.basename(icon), isEmpty: () => false };
+          images.push(image);
+          return image;
+        } },
+      },
+    });
+    const tray = exports.createTray({}, { start() {}, stop() { stopped = true; }, quit() {} });
+    assert.deepEqual(images.map((image) => image.name).sort(), ["tray-gray.ico", "tray-green.ico", "tray-red.ico"]);
+    for (const status of ["starting", "running", "unhealthy", "restarting"]) {
+      tray.update(status);
+      assert.equal(menu[0].label, "Stop Bridge");
+    }
+    menu[0].click();
+    assert.equal(stopped, true);
+    tray.destroy();
+  });
+}
+
 function supervisorFixture() {
   const child = new EventEmitter();
   child.pid = 12345;

@@ -1,6 +1,6 @@
 {
   "name": "workiq-bridge-manager",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "WorkIQ MCP Bridge Manager — minimalist Windows tray app to run and monitor the WorkIQ MCP bridge.",
   "author": "datorresb",
   "license": "MIT",
@@ -42,6 +42,9 @@
       "src/renderer/**/*"
     ],
     "asarUnpack": ["node_modules/**"],
+    "extraResources": [
+      { "from": "build", "to": "tray", "filter": ["tray-*.ico"] }
+    ],
     "win": {
       "target": [
         { "target": "nsis", "arch": ["x64"] },

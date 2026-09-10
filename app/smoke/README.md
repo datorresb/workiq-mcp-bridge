@@ -14,6 +14,7 @@ on the feature above it.
 | `11_readiness.mjs` | Starting/Running states, MCP failures, canceled checks, Doctor output, and duplicate/late manual tests. | Installed dependencies; no live WorkIQ. |
 | `12_gateway.mjs` | Canceled-client recovery, readiness validation, and staged HTTP/MCP/M365 tests including tool errors and malformed responses. | Build and installed dependencies; uses a synthetic stdio MCP. |
 | `13_packaged-ui.mjs` | Packaged UI + IPC: Start, Test connection, Doctor, and Stop. | Node 22+ and a packaged app; calls real WorkIQ `list_agents`. |
+| `14_tray-icons.cjs` | The shipped tray ICOs decode in Electron, contain visible pixels, and can be assigned to a native tray. | Installed Electron and a directory containing the three tray ICOs. |
 
 Usage:
 
@@ -38,6 +39,14 @@ node smoke/13_packaged-ui.mjs "dist-package/1.0.2/win-unpacked/WorkIQ MCP Bridge
 ```
 
 It uses an isolated temporary profile and a free port, leaves existing app instances alone, and closes its test instance after stopping the bridge. It does not query emails or documents. Its temporary profile is retained for troubleshooting; only the test launch enables a debugging endpoint.
+
+Native tray resource check after packaging:
+
+```powershell
+node node_modules/electron/cli.js smoke/14_tray-icons.cjs dist-package/1.0.3/win-unpacked/resources/tray
+```
+
+The test creates and removes its own tray icon; it does not start WorkIQ or affect the running bridge. Development reads icons from `build/`; packaged apps read `resources/tray/` supplied by `extraResources`.
 
 For interactive MCP tool verification through the bridge, use the MCP Inspector:
 
