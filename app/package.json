@@ -1,12 +1,14 @@
 {
   "name": "workiq-bridge-manager",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "WorkIQ MCP Bridge Manager — minimalist Windows tray app to run and monitor the WorkIQ MCP bridge.",
   "author": "datorresb",
   "license": "MIT",
   "main": "dist/main/main.js",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "patch-package --error-on-fail && tsc -p tsconfig.json",
+    "test": "npm run build && node --test smoke/11_readiness.mjs smoke/12_gateway.mjs",
+    "postinstall": "patch-package --error-on-fail",
     "start": "electron .",
     "dev": "tsc -p tsconfig.json && electron .",
     "dist": "npm run build && electron-builder",
@@ -19,10 +21,13 @@
     "electron-builder": "^25.1.8",
     "gifenc": "^1.0.3",
     "png-to-ico": "^2.1.8",
+    "patch-package": "^8.0.0",
     "sharp": "^0.33.5",
     "typescript": "^5.6.0"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "1.28.0",
+    "supergateway": "3.4.3",
     "tree-kill": "^1.2.2"
   },
   "build": {
@@ -36,6 +41,7 @@
       "dist/**/*",
       "src/renderer/**/*"
     ],
+    "asarUnpack": ["node_modules/**"],
     "win": {
       "target": [
         { "target": "nsis", "arch": ["x64"] },

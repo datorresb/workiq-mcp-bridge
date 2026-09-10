@@ -1,9 +1,12 @@
 import { BridgeStatus } from "./supervisor";
 import { AppConfig } from "./config";
+import { ConnectionReport } from "./mcp";
 
 export interface Metrics {
   status: BridgeStatus;
   healthy: boolean;
+  httpReady: boolean;
+  toolCount: number | null;
   uptimeMs: number;
   port: number;
   /** Best-effort — null when supergateway does not surface it. */
@@ -15,4 +18,5 @@ export interface Metrics {
 export interface AppState {
   settings: AppConfig;
   metrics: Metrics;
+  connectionTest: ConnectionReport;
 }

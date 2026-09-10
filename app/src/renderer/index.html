@@ -25,6 +25,7 @@
         <div>
           <div id="status-name" class="sname">Stopped</div>
           <div id="endpoint" class="endpoint">http://localhost:3100/mcp</div>
+          <div id="endpoint-container" class="endpoint">http://host.docker.internal:3100/mcp</div>
         </div>
       </div>
       <div class="header-actions">
@@ -33,9 +34,21 @@
       </div>
     </section>
 
+    <section class="connection-checks" aria-label="Connection checks">
+      <div class="connection-head">
+        <span class="lbl">Connection</span>
+        <button id="test-connection" class="btn small ghost" disabled>Test connection</button>
+      </div>
+      <div id="connection-results" aria-live="polite" aria-atomic="true">
+        <div class="connection-row"><span>Bridge HTTP</span><span id="check-http-status" class="check-status idle">Not checked</span><span id="check-http-detail" class="check-detail"></span></div>
+        <div class="connection-row"><span>WorkIQ MCP</span><span id="check-mcp-status" class="check-status idle">Not checked</span><span id="check-mcp-detail" class="check-detail"></span></div>
+        <div class="connection-row"><span>M365 access</span><span id="check-m365-status" class="check-status idle">Not checked</span><span id="check-m365-detail" class="check-detail"></span></div>
+      </div>
+      <div id="connection-error" class="check-error hidden" role="alert"></div>
+    </section>
+
     <!-- metrics -->
     <section class="cards">
-      <div class="card"><div class="k">Health</div><div id="m-health" class="v">—</div></div>
       <div class="card"><div class="k">Uptime</div><div id="m-uptime" class="v">—</div></div>
       <div class="card"><div class="k">Clients</div><div id="m-clients" class="v">n/a</div></div>
       <div class="card"><div class="k">Requests</div><div id="m-requests" class="v">n/a</div></div>
@@ -88,7 +101,7 @@
   <div id="doctor-overlay" class="overlay hidden">
     <div class="sheet">
       <div class="sheet-head">
-        <span class="sheet-title">First-run Doctor</span>
+        <span class="sheet-title">Environment checks</span>
         <button id="doctor-close" class="x">✕</button>
       </div>
       <div id="doctor-list" class="doctor-list"></div>

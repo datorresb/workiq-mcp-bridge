@@ -58,24 +58,13 @@ async function checkPort(port: number): Promise<CheckResult> {
   };
 }
 
-function checkWorkiq(): CheckResult {
-  // WorkIQ registration lives on the host and cannot be verified cheaply
-  // without triggering a download; surface it as a manual reminder.
-  return {
-    id: "workiq",
-    label: "WorkIQ host registration",
-    status: "warn",
-    detail: "Ensure WorkIQ is registered on this machine (run `npx @microsoft/workiq` once).",
-  };
-}
-
 export async function runDoctor(port: number): Promise<CheckResult[]> {
   const [npx, firewall, port_] = await Promise.all([
     checkNpx(),
     checkFirewall(),
     checkPort(port),
   ]);
-  return [npx, checkWorkiq(), firewall, port_];
+  return [npx, firewall, port_];
 }
 
 /** Add the Windows firewall inbound rule, elevating via UAC. */

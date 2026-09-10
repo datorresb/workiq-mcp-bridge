@@ -6,15 +6,20 @@ on the feature above it.
 
 | Stub | Proves | Needs |
 |---|---|---|
-| `00_handshake.mjs` | The MCP `initialize` POST returns HTTP 200 (deep liveness). | A running bridge on the port. |
+| `00_handshake.mjs` | MCP initialization and non-empty tool discovery succeed, not just HTTP 200. | Build and a running bridge on the port. |
 | `01_spawn.mjs` | Start/stop the process tree; the port is released after stop (no orphans). | Build only. |
 | `02_watchdog.mjs` | An unexpected crash restarts; a manual stop does not. | Build only. |
 | `03_health-loop.mjs` | `/healthz` ✓/✗ transitions are emitted. | A running bridge on the port. |
+| `10_restart-policy.mjs` | Restart backoff, cap, and reset. | Build only. |
+| `11_readiness.mjs` | Starting/Running states, MCP failures, canceled checks, Doctor output, and duplicate/late manual tests. | Installed dependencies; no live WorkIQ. |
+| `12_gateway.mjs` | Canceled-client recovery, readiness validation, and staged HTTP/MCP/M365 tests including tool errors and malformed responses. | Build and installed dependencies; uses a synthetic stdio MCP. |
+| `13_packaged-ui.mjs` | Packaged UI + IPC: Start, Test connection, Doctor, and Stop. | Node 22+ and a packaged app; calls real WorkIQ `list_agents`. |
 
 Usage:
 
 ```bash
 npm run build
+npm test                        # builds and runs 11 + 12 on isolated fixtures
 node smoke/01_spawn.mjs           # start/stop + orphan check
 node smoke/02_watchdog.mjs        # crash-restart vs manual-stop
 # with a bridge already running on :3100:
@@ -23,6 +28,16 @@ node smoke/03_health-loop.mjs
 ```
 
 Each stub exits `0` on success and non-zero on failure.
+
+The readiness probe uses the MCP SDK to handle JSON-RPC and SSE responses, with a two-minute deadline for the complete probe. The app repeats it only after Start or an observed HTTP outage; normal polling remains an inexpensive HTTP health check. The supergateway patch in `../patches/` is reapplied by install/build and included in the packaged app.
+
+Optional packaged UI check, separate from `npm test`:
+
+```powershell
+node smoke/13_packaged-ui.mjs "dist-package/1.0.2/win-unpacked/WorkIQ MCP Bridge.exe"
+```
+
+It uses an isolated temporary profile and a free port, leaves existing app instances alone, and closes its test instance after stopping the bridge. It does not query emails or documents. Its temporary profile is retained for troubleshooting; only the test launch enables a debugging endpoint.
 
 For interactive MCP tool verification through the bridge, use the MCP Inspector:
 

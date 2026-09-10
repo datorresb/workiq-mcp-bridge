@@ -1,4 +1,5 @@
 import { EventEmitter } from "events";
+import { probeMcp } from "./mcp";
 
 export interface HealthPollerOptions {
   port: number;
@@ -6,15 +7,15 @@ export interface HealthPollerOptions {
   failureThreshold?: number;
 }
 
-/**
- * Polls supergateway's `--healthEndpoint` (GET /healthz) on an interval and
- * emits `health` (boolean) when the healthy/unhealthy state changes.
- */
 export class HealthPoller extends EventEmitter {
+  httpReady = false;
+  toolCount: number | null = null;
   private timer: NodeJS.Timeout | null = null;
   private failures = 0;
   private healthy = false;
-  private polling = false;
+  private pending: AbortController | null = null;
+  private ready = false;
+  private lastError: string | null = null;
   private lastEmitted: boolean | null = null;
 
   constructor(private readonly options: HealthPollerOptions) {
@@ -33,6 +34,12 @@ export class HealthPoller extends EventEmitter {
       clearInterval(this.timer);
       this.timer = null;
     }
+    this.pending?.abort();
+    this.pending = null;
+    this.httpReady = false;
+    this.toolCount = null;
+    this.ready = false;
+    this.lastError = null;
     this.failures = 0;
     this.healthy = false;
     this.lastEmitted = null;
@@ -43,41 +50,55 @@ export class HealthPoller extends EventEmitter {
   }
 
   async pollOnce(): Promise<boolean> {
-    if (this.polling) return this.healthy;
-    this.polling = true;
+    if (this.pending) return this.healthy;
+    const controller = new AbortController();
+    this.pending = controller;
+    let httpReady = false;
     try {
-      const ok = await this.probe();
-      if (ok) {
-        this.failures = 0;
-        if (this.lastEmitted !== true) {
-          this.lastEmitted = true;
-          this.healthy = true;
-          this.emit("health", true);
-        }
-      } else {
-        this.failures += 1;
-        const threshold = this.options.failureThreshold ?? 3;
-        if (this.failures >= threshold && this.lastEmitted !== false) {
-          this.lastEmitted = false;
-          this.healthy = false;
-          this.emit("health", false);
-        }
-      }
-      return ok;
-    } finally {
-      this.polling = false;
-    }
-  }
-
-  private async probe(): Promise<boolean> {
-    try {
-      const res = await fetch(this.healthzUrl(), {
+      const response = await fetch(this.healthzUrl(), {
         method: "GET",
-        signal: AbortSignal.timeout(5000),
+        signal: AbortSignal.any([controller.signal, AbortSignal.timeout(5000)]),
       });
-      return res.status === 200;
-    } catch {
+      if (controller.signal.aborted) return false;
+      if (response.status !== 200) throw new Error(`HTTP ${response.status}`);
+      httpReady = true;
+      this.httpReady = true;
+      if (!this.ready) {
+        const result = await probeMcp(this.options.port, controller.signal);
+        if (controller.signal.aborted) return false;
+        this.toolCount = result?.toolCount ?? null;
+        this.ready = true;
+        this.emit("diagnostic", "MCP ready: initialize and tools/list succeeded.");
+      }
+      this.failures = 0;
+      this.lastError = null;
+      if (this.lastEmitted !== true) {
+        this.lastEmitted = true;
+        this.healthy = true;
+        this.emit("health", true);
+      }
+      return true;
+    } catch (error) {
+      if (controller.signal.aborted) return false;
+      this.httpReady = httpReady;
+      this.toolCount = null;
+      this.ready = false;
+      const threshold = this.options.failureThreshold ?? 3;
+      this.failures = httpReady ? threshold : this.failures + 1;
+      const detail = error instanceof Error ? error.message : String(error);
+      const message = `${httpReady ? "MCP not ready" : "Bridge HTTP not ready"}: ${detail}`;
+      if (message !== this.lastError) {
+        this.lastError = message;
+        this.emit("diagnostic", message);
+      }
+      if (this.failures >= threshold && this.lastEmitted !== false) {
+        this.lastEmitted = false;
+        this.healthy = false;
+        this.emit("health", false);
+      }
       return false;
+    } finally {
+      if (this.pending === controller) this.pending = null;
     }
   }
 }
