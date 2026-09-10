@@ -1,97 +1,142 @@
-// Renders the real renderer UI (src/renderer/index.html) with a mock bridge,
-// drives it through a scripted sequence, captures frames via capturePage(), and
-// encodes an animated GIF for the README. Build-time only.
-//   (from app/) node_modules/electron/dist/electron.exe build/capture/make-gif.mjs
-import { app, BrowserWindow } from "electron";
 import gifenc from "gifenc";
+import sharp from "sharp";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const indexHtml = path.join(here, "..", "..", "src", "renderer", "index.html");
-const outGif = path.join(here, "..", "demo.gif");
-
-const GIF_WIDTH = 680;
-const STEP_MS = 140;
-const TOTAL_MS = 5600;
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
+const endpoint = process.argv[2] ?? "http://127.0.0.1:9222";
+const captures = fs.mkdtempSync(path.join(os.tmpdir(), "workiq-gif-"));
 const { GIFEncoder, quantize, applyPalette } = gifenc;
 
-function bgraToRgba(bgra) {
-  const out = new Uint8Array(bgra.length);
-  for (let i = 0; i < bgra.length; i += 4) {
-    out[i] = bgra[i + 2];
-    out[i + 1] = bgra[i + 1];
-    out[i + 2] = bgra[i];
-    out[i + 3] = bgra[i + 3];
-  }
-  return out;
-}
-
-function paletteSample(frames) {
-  const pick = [frames[3], frames[Math.floor(frames.length / 2)], frames[frames.length - 2]].filter(
-    Boolean
-  );
-  const total = pick.reduce((n, f) => n + f.rgba.length, 0);
-  const buf = new Uint8Array(total);
-  let off = 0;
-  for (const f of pick) {
-    buf.set(f.rgba, off);
-    off += f.rgba.length;
-  }
-  return buf;
-}
-
-app.whenReady().then(async () => {
-  const win = new BrowserWindow({
-    width: 760,
-    height: 470,
-    x: -4000,
-    y: 0,
-    show: true,
-    frame: false,
-    skipTaskbar: true,
-    backgroundColor: "#0f1115",
-    useContentSize: true,
-    webPreferences: {
-      preload: path.join(here, "capture-preload.js"),
-      contextIsolation: true,
-      nodeIntegration: false,
-      backgroundThrottling: false,
-    },
+async function main() {
+  const client = new Client({ name: "workiq-readme-capture", version: "1.0.0" });
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [path.join(path.dirname(process.execPath), "node_modules/npm/bin/npx-cli.js"),
+      "-y", "@playwright/mcp@0.0.80", "--cdp-endpoint", endpoint,
+      "--snapshot-mode", "none", "--console-level", "error", "--output-dir", captures],
+    cwd: path.resolve(here, "..", ".."), env: process.env, stderr: "ignore",
   });
-
-  await win.loadFile(indexHtml);
-  await sleep(500);
-
-  const clicks = [
-    [200, "document.getElementById('toggle-btn').click()"],
-    [3000, "document.getElementById('connect-btn').click()"],
-    [4700, "document.getElementById('connect-close').click()"],
-  ];
-  for (const [t, js] of clicks) {
-    setTimeout(() => win.webContents.executeJavaScript(js).catch(() => {}), t);
-  }
-
   const frames = [];
-  for (let elapsed = 0; elapsed <= TOTAL_MS; elapsed += STEP_MS) {
-    const img = (await win.webContents.capturePage()).resize({ width: GIF_WIDTH });
-    const size = img.getSize();
-    frames.push({ rgba: bgraToRgba(img.toBitmap()), w: size.width, h: size.height });
-    await sleep(STEP_MS);
+  let prepared = false;
+
+  async function call(name, args) {
+    const response = await client.callTool({ name, arguments: args }, undefined, { timeout: 180000 });
+    if (response.isError) throw new Error(`Capture stopped at ${name}; raw output withheld for privacy`);
+    return response;
+  }
+  const evaluate = (expression) => call("browser_evaluate", { function: `() => ${expression}` });
+  const click = (target) => call("browser_click", { target });
+  async function waitFor(condition) {
+    await evaluate(`new Promise((resolve, reject) => {
+      const observer = new MutationObserver(check);
+      const timer = setTimeout(() => { observer.disconnect(); reject(new Error('Capture state timeout')); }, 150000);
+      function check() { if (${condition}) { clearTimeout(timer); observer.disconnect(); resolve(true); } }
+      observer.observe(document.body, {subtree:true, childList:true, attributes:true, characterData:true});
+      check();
+    })`);
+  }
+  async function capture(name, delay) {
+    await evaluate(`(() => {
+      if (getComputedStyle(document.querySelector('.logs-wrap')).display !== 'none') throw new Error('Logs are visible');
+      const allowed = /^(|Not checked|Checking\\.\\.\\.|Port \\d+|\\d+ tools|Initializing and listing tools\\.\\.\\.|Calling list_agents\\.\\.\\.|Basic access verified \\(list_agents\\))$/;
+      for (const detail of document.querySelectorAll('.check-detail')) {
+        if (!allowed.test(detail.textContent)) throw new Error('Unexpected connection detail; do not capture');
+      }
+      for (const detail of document.querySelectorAll('#doctor-list .dd')) {
+        if (!/^(npx [0-9.]+|Inbound rule present|Port \\d+ is used by this bridge)$/.test(detail.textContent)) throw new Error('Unexpected environment detail; do not capture');
+      }
+      for (const code of document.querySelectorAll('.code')) {
+        if (!code.textContent) continue;
+        const parsed = JSON.parse('{' + code.textContent + '}');
+        const url = parsed.mcp?.servers?.workiq?.url;
+        if (!/^http:\\/\\/(localhost|host\\.docker\\.internal):\\d+\\/mcp$/.test(url)) throw new Error('Unexpected endpoint; do not capture');
+        if (JSON.stringify(parsed) !== JSON.stringify({mcp:{servers:{workiq:{url}}}})) throw new Error('Unexpected configuration; do not capture');
+      }
+    })()`);
+    const response = await call("browser_take_screenshot", {
+      scale: "css", type: "png", filename: path.join(captures, `${name}.png`), fullPage: false,
+    });
+    const image = response.content.find((item) => item.type === "image");
+    const png = image ? Buffer.from(image.data, "base64") : fs.readFileSync(path.join(captures, `${name}.png`));
+    const { data, info } = await sharp(png)
+      .resize({ width: 800 }).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    if (frames.length && info.height !== frames[0].height) throw new Error("Capture dimensions changed");
+    frames.push({ rgba: data, width: info.width, height: info.height, delay });
+    console.log(`Captured ${name}; logs excluded`);
   }
 
-  const enc = GIFEncoder();
-  const palette = quantize(paletteSample(frames), 128);
-  for (const f of frames) {
-    const index = applyPalette(f.rgba, palette);
-    enc.writeFrame(index, f.w, f.h, { palette, delay: STEP_MS });
+  try {
+    console.log("Connecting Playwright MCP to real Electron (automatic snapshots disabled)");
+    await client.connect(transport, { timeout: 60000 });
+    await client.listTools();
+    await evaluate(`(async () => {
+      if (document.title !== 'WorkIQ MCP Bridge' || !window.bridgeAPI) throw new Error('Wrong capture target');
+      const state = await window.bridgeAPI.state();
+      if (state.metrics.status !== 'running') throw new Error('Start the real bridge before capture');
+      if (Object.values(state.connectionTest).some(value => value?.status === 'checking')) throw new Error('Another connection test is active');
+      for (const id of ['doctor-overlay','connect-overlay']) {
+        if (!document.getElementById(id).classList.contains('hidden')) throw new Error('Close open panels before capture');
+      }
+      const style = document.createElement('style');
+      style.id = 'gif-capture-privacy';
+      style.textContent = '.logs-wrap { display:none !important; }';
+      document.head.appendChild(style);
+    })()`);
+    prepared = true;
+    await capture("01-running", 1800);
+    await click("#test-connection");
+    await capture("02-testing", 1600);
+    await waitFor("!document.getElementById('test-connection').disabled");
+    await evaluate(`(() => {
+      for (const key of ['http','mcp','m365']) {
+        if (document.getElementById('check-'+key+'-status').textContent !== 'OK') throw new Error('Connection test failed; do not capture');
+      }
+    })()`);
+    await capture("03-verified", 3000);
+    await click("#doctor-btn");
+    await waitFor("document.querySelectorAll('#doctor-list .doctor-row').length === 3");
+    await capture("04-doctor", 3000);
+    await click("#doctor-close");
+    await click("#connect-btn");
+    await capture("05-connect", 4500);
+    await click("#connect-close");
+    await capture("06-ready", 2000);
+
+    const encoder = GIFEncoder();
+    const palette = quantize(Buffer.concat(frames.map((frame) => frame.rgba)), 128);
+    for (const frame of frames) {
+      encoder.writeFrame(applyPalette(frame.rgba, palette), frame.width, frame.height, {
+        palette, delay: frame.delay, repeat: 0,
+      });
+    }
+    encoder.finish();
+    const gif = Buffer.from(encoder.bytes());
+    const metadata = await sharp(gif, { animated: true }).metadata();
+    if (metadata.pages !== frames.length || metadata.width !== 800) throw new Error("Invalid GIF output");
+    const candidate = path.join(captures, "demo-candidate.gif");
+    fs.writeFileSync(candidate, gif);
+    console.log(JSON.stringify({ candidate, bytes: gif.length, frames: metadata.pages, width: metadata.width,
+      height: metadata.pageHeight, delays: metadata.delay, captures, reviewRequired: true }));
+  } finally {
+    if (prepared) {
+      try {
+        await evaluate(`(() => {
+          document.getElementById('gif-capture-privacy')?.remove();
+          document.getElementById('doctor-close').click();
+          document.getElementById('connect-close').click();
+        })()`);
+      } catch { console.error("Restore the capture privacy style/panels in the Electron window if still present"); }
+    }
+    await client.close();
   }
-  enc.finish();
-  fs.writeFileSync(outGif, Buffer.from(enc.bytes()));
-  console.log(`GIF written: ${outGif} (${(fs.statSync(outGif).size / 1024).toFixed(0)} KB, ${frames.length} frames, ${frames[0].w}x${frames[0].h})`);
-  app.quit();
+}
+
+main().catch((error) => {
+  console.error(error.message);
+  process.exitCode = 1;
 });

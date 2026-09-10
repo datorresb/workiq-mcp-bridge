@@ -52,6 +52,18 @@ node node_modules/electron/cli.js smoke/14_tray-icons.cjs dist-package/1.0.3/win
 
 The test creates and removes its own tray icon; it does not start WorkIQ or affect the running bridge. Development reads icons from `build/`; packaged apps read `resources/tray/` supplied by `extraResources`.
 
+## README GIF
+
+With the real Electron app running and CDP enabled as described in [../AGENTS.md](../AGENTS.md), run from `app/`:
+
+```powershell
+node build/capture/make-gif.mjs http://127.0.0.1:9222
+```
+
+The generator drives Test connection, Doctor, and the connection panel through Playwright MCP. It does not use the legacy mock preload. It temporarily hides logs before taking any screenshot, disables automatic MCP snapshots, and rejects unexpected result/configuration text. It restores the normal view afterwards and leaves the running bridge alone.
+
+Output is a candidate GIF and six PNG frames in a temporary folder printed by the command. Inspect **every frame**, including the decoded GIF, for personal data and legibility before replacing `build/demo.gif`. Never publish raw logs, MCP session output, or unreviewed captures. Only the reviewed GIF belongs in the README. The fixed frame delays shorten waiting time; they are not latency measurements.
+
 For interactive MCP tool verification through the bridge, use the MCP Inspector:
 
 ```bash
