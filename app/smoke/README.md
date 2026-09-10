@@ -13,8 +13,10 @@ on the feature above it.
 | `10_restart-policy.mjs` | Restart backoff, cap, and reset. | Build only. |
 | `11_readiness.mjs` | Starting/Running states, MCP failures, canceled checks, Doctor output, and duplicate/late manual tests. | Installed dependencies; no live WorkIQ. |
 | `12_gateway.mjs` | Canceled-client recovery, readiness validation, and staged HTTP/MCP/M365 tests including tool errors and malformed responses. | Build and installed dependencies; uses a synthetic stdio MCP. |
-| `13_packaged-ui.mjs` | Packaged UI + IPC: Start, Test connection, Doctor, and Stop. | Node 22+ and a packaged app; calls real WorkIQ `list_agents`. |
+| `13_packaged-ui.mjs` | Packaged UI + IPC: Start, Test connection, Doctor port ownership, and Stop. Also supports the actual portable launcher. | Node 22+ and a packaged app; calls real WorkIQ `list_agents`. |
 | `14_tray-icons.cjs` | The shipped tray ICOs decode in Electron, contain visible pixels, and can be assigned to a native tray. | Installed Electron and a directory containing the three tray ICOs. |
+
+Doctor regressions in `11_readiness.mjs` cover free, own, foreign and unknown port owners, plus active versus configured ports. `13_packaged-ui.mjs` verifies the running gateway's port is shown as OK in the real Doctor UI and is free after Stop.
 
 Usage:
 
@@ -35,10 +37,12 @@ The readiness probe uses the MCP SDK to handle JSON-RPC and SSE responses, with 
 Optional packaged UI check, separate from `npm test`:
 
 ```powershell
-node smoke/13_packaged-ui.mjs "dist-package/1.0.2/win-unpacked/WorkIQ MCP Bridge.exe"
+node smoke/13_packaged-ui.mjs "dist-package/1.0.4/WorkIQ MCP Bridge-1.0.4-portable.exe"
 ```
 
 It uses an isolated temporary profile and a free port, leaves existing app instances alone, and closes its test instance after stopping the bridge. It does not query emails or documents. Its temporary profile is retained for troubleshooting; only the test launch enables a debugging endpoint.
+
+The portable test waits for the extracted app's debugging endpoint using a filesystem event, then checks the same window and IPC as the unpacked test. The launch deadline is three minutes to accommodate extraction. Run the portable path above when verifying distribution, not only the executable under `win-unpacked`.
 
 Native tray resource check after packaging:
 
