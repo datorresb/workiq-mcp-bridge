@@ -8,6 +8,49 @@ import { runInNewContext } from "node:vm";
 const require = createRequire(import.meta.url);
 const ts = require("typescript");
 
+for (const packaged of [false, true]) {
+  test(`tray icons resolve in ${packaged ? "packaged" : "development"} mode and Starting offers Stop`, () => {
+    const path = require("node:path");
+    const root = path.resolve("tray-test");
+    const images = [];
+    let menu;
+    let stopped = false;
+    const exports = {};
+    const source = readFileSync(new URL("../src/main/tray.ts", import.meta.url), "utf8");
+    const expected = path.join(root, packaged ? "resources/tray" : "build");
+    class FakeTray extends EventEmitter {
+      setImage(image) { assert.ok(images.includes(image)); }
+      setToolTip() {}
+      setContextMenu(value) { menu = value; }
+      destroy() {}
+    }
+    runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText, {
+      exports,
+      process: { resourcesPath: path.join(root, "resources") },
+      require: (name) => name === "path" ? path : {
+        app: { isPackaged: packaged, getAppPath: () => root },
+        Tray: FakeTray,
+        Menu: { buildFromTemplate: (items) => items },
+        nativeImage: { createFromPath: (icon) => {
+          assert.equal(path.dirname(icon), expected);
+          const image = { name: path.basename(icon), isEmpty: () => false };
+          images.push(image);
+          return image;
+        } },
+      },
+    });
+    const tray = exports.createTray({}, { start() {}, stop() { stopped = true; }, quit() {} });
+    assert.deepEqual(images.map((image) => image.name).sort(), ["tray-gray.ico", "tray-green.ico", "tray-red.ico"]);
+    for (const status of ["starting", "running", "unhealthy", "restarting"]) {
+      tray.update(status);
+      assert.equal(menu[0].label, "Stop Bridge");
+    }
+    menu[0].click();
+    assert.equal(stopped, true);
+    tray.destroy();
+  });
+}
+
 function supervisorFixture() {
   const child = new EventEmitter();
   child.pid = 12345;
@@ -115,18 +158,37 @@ test("Stop discards a pending MCP readiness result", async () => {
   assert.deepEqual(changes, []);
 });
 
-test("Doctor only returns real prerequisite checks", async () => {
+function doctorFixture(inUse = false, holder = null) {
   const exports = {};
   const source = readFileSync(new URL("../src/main/doctor.ts", import.meta.url), "utf8");
   runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText, {
     exports,
     require: (name) => name === "child_process"
       ? { execFile: (command, args, options, done) => done(null, "yes") }
-      : { isPortInUse: async () => false },
+      : { isPortInUse: async () => inUse, findPortHolder: async () => holder },
   });
-  const results = await exports.runDoctor(3100);
+  return exports.runDoctor;
+}
+
+test("Doctor only returns real prerequisite checks", async () => {
+  const results = await doctorFixture()(3100);
   assert.deepEqual(Array.from(results, (result) => result.id), ["npx", "firewall", "port"]);
 });
+
+for (const scenario of [
+  { name: "free port", inUse: false, holder: null, bridgePid: undefined, status: "pass", detail: /free/ },
+  { name: "this bridge owns the port", inUse: true, holder: { pid: 12345, name: "WorkIQ MCP Bridge" }, bridgePid: 12345, status: "pass", detail: /this bridge/ },
+  { name: "another process owns the port", inUse: true, holder: { pid: 23456, name: "node" }, bridgePid: 12345, status: "warn", detail: /node.*23456/ },
+  { name: "bridge stopped with port held by another process", inUse: true, holder: { pid: 12345, name: "node" }, bridgePid: undefined, status: "warn", detail: /node.*12345/ },
+  { name: "owner could not be identified", inUse: true, holder: null, bridgePid: 12345, status: "warn", detail: /could not be identified/ },
+]) {
+  test(`Doctor: ${scenario.name}`, async () => {
+    const results = await doctorFixture(scenario.inUse, scenario.holder)(3100, scenario.bridgePid);
+    const port = results.find((result) => result.id === "port");
+    assert.equal(port.status, scenario.status);
+    assert.match(port.detail, scenario.detail);
+  });
+}
 
 test("controller blocks duplicate tests and ignores results after Stop", async () => {
   const exports = {};
@@ -141,12 +203,14 @@ test("controller blocks duplicate tests and ignores results after Stop", async (
     "./supervisor": { BridgeSupervisor: class extends EventEmitter {
       status = "running";
       activePort = 3100;
+      pid = 12345;
       markUnhealthy() {}
       async stop() { this.status = "stopped"; this.emit("status", "stopped"); }
     } },
     "./health": { HealthPoller: class extends EventEmitter { stop() {} } },
     "./logs": { RollingLog: class { append() {} } },
     "./config": { loadConfig: () => ({ port: 3100 }), logFilePath: () => "unused" },
+    "./doctor": { runDoctor: async (port, bridgePid) => ({ port, bridgePid }) },
     "./mcp": {
       emptyConnectionReport: empty,
       testConnection: (port, onUpdate, abortSignal) => {
@@ -163,10 +227,13 @@ test("controller blocks duplicate tests and ignores results after Stop", async (
     AbortController,
   });
   const controller = new exports.AppController();
+  controller.config.port = 4000;
+  assert.deepEqual(await controller.runDoctor(), { port: 3100, bridgePid: 12345 });
   const pending = controller.testConnection();
   await assert.rejects(controller.testConnection(), /already running/);
   assert.equal(calls, 1);
   await controller.stop();
+  assert.deepEqual(await controller.runDoctor(), { port: 4000, bridgePid: undefined });
   assert.equal(signal.aborted, true);
   update({ ...empty(3100), m365: { status: "pass" } });
   complete(empty(3100));

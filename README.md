@@ -53,6 +53,7 @@ A minimalist Windows tray app (Electron) under [`app/`](app/) that runs and moni
 - **How to connect** — one click reveals the host or devcontainer MCP snippet, ready to copy.
 - **Connection checks** — separate HTTP, MCP, and M365 results. **Test connection** runs `list_agents` to verify basic M365 access; until then, M365 stays **Not checked**. A successful basic test does not guarantee that `ask` or every other tool works.
 - **Doctor** — checks Node/npx, firewall, and port. No fixed registration reminder and no manual `npx` startup required; the bridge starts WorkIQ for you.
+- **Port ownership** — a port used by this app's gateway is OK, not a conflict. The Doctor checks the active port while running and identifies other owners when possible; an unidentified owner remains a warning.
 - **Toast notifications** when the bridge goes down.
 
 ### Download

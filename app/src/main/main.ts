@@ -200,7 +200,11 @@ export class AppController {
   }
 
   runDoctor(): Promise<CheckResult[]> {
-    return runDoctor(this.config.port);
+    const stopped = this.supervisor.status === "stopped";
+    return runDoctor(
+      stopped ? this.config.port : this.supervisor.activePort,
+      stopped ? undefined : this.supervisor.pid
+    );
   }
 
   fixFirewall(): void {

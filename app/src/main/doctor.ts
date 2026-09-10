@@ -1,5 +1,5 @@
 import { execFile } from "child_process";
-import { isPortInUse } from "./port";
+import { findPortHolder, isPortInUse } from "./port";
 
 export type CheckStatus = "pass" | "fail" | "warn";
 
@@ -48,21 +48,29 @@ async function checkFirewall(): Promise<CheckResult> {
   };
 }
 
-async function checkPort(port: number): Promise<CheckResult> {
+async function checkPort(port: number, bridgePid?: number): Promise<CheckResult> {
   const inUse = await isPortInUse(port);
+  const holder = inUse ? await findPortHolder(port) : null;
+  const owned = bridgePid !== undefined && holder?.pid === bridgePid;
   return {
     id: "port",
-    label: `Port ${port} availability`,
-    status: inUse ? "warn" : "pass",
-    detail: inUse ? `Port ${port} is currently in use` : `Port ${port} is free`,
+    label: `Port ${port}`,
+    status: inUse && !owned ? "warn" : "pass",
+    detail: !inUse
+      ? `Port ${port} is free`
+      : owned
+        ? `Port ${port} is used by this bridge`
+        : holder
+          ? `Port ${port} is used by ${holder.name} (PID ${holder.pid})`
+          : `Port ${port} is in use; its owner could not be identified`,
   };
 }
 
-export async function runDoctor(port: number): Promise<CheckResult[]> {
+export async function runDoctor(port: number, bridgePid?: number): Promise<CheckResult[]> {
   const [npx, firewall, port_] = await Promise.all([
     checkNpx(),
     checkFirewall(),
-    checkPort(port),
+    checkPort(port, bridgePid),
   ]);
   return [npx, firewall, port_];
 }

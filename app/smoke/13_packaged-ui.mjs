@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { mkdtemp } from "node:fs/promises";
+import { readFileSync, watch } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createServer } from "node:net";
@@ -16,16 +17,33 @@ const child = spawn(executable, [`--user-data-dir=${profile}`, "--remote-debuggi
   stdio: ["ignore", "pipe", "pipe"], windowsHide: false,
 });
 let socket;
+let stopBridge;
 try {
   const endpoint = await new Promise((resolve, reject) => {
     let output = "";
-    const timer = setTimeout(() => reject(new Error("Packaged app did not expose its test endpoint")), 60000);
+    const marker = path.join(profile, "DevToolsActivePort");
+    const watcher = watch(profile, () => checkMarker());
+    const cleanup = () => { clearTimeout(timer); watcher.close(); };
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error("Packaged app did not expose its test endpoint within 180 seconds"));
+    }, 180000);
+    function checkMarker() {
+      try {
+        const [debugPort, debugPath] = readFileSync(marker, "utf8").trim().split(/\r?\n/);
+        if (debugPort && debugPath) {
+          cleanup();
+          resolve(`ws://127.0.0.1:${debugPort}${debugPath}`);
+        }
+      } catch {}
+    }
     child.stderr.on("data", (chunk) => {
       output += chunk.toString();
       const match = output.match(/DevTools listening on (ws:\/\/[^\s]+)/);
-      if (match) { clearTimeout(timer); resolve(match[1]); }
+      if (match) { cleanup(); resolve(match[1]); }
     });
-    child.once("exit", (code) => { clearTimeout(timer); reject(new Error(`Packaged app exited: ${code}`)); });
+    child.once("exit", (code) => { cleanup(); reject(new Error(`Packaged app exited: ${code}`)); });
+    checkMarker();
   });
   socket = new WebSocket(endpoint);
   await new Promise((resolve, reject) => { socket.addEventListener("open", resolve); socket.addEventListener("error", reject); });
@@ -57,6 +75,7 @@ try {
     if (response.exceptionDetails) throw new Error(response.exceptionDetails.exception?.description ?? response.exceptionDetails.text);
     return response.result.value;
   }
+  stopBridge = () => evaluate("window.bridgeAPI.stop()");
   await evaluate(`new Promise(resolve => {
     if (document.readyState === 'complete') resolve();
     else window.addEventListener('load', resolve, {once:true});
@@ -83,12 +102,22 @@ try {
   await evaluate("document.getElementById('doctor-btn').click()");
   await waitFor("document.querySelectorAll('#doctor-list .doctor-row').length === 3");
   assert.doesNotMatch(await evaluate("document.getElementById('doctor-list').textContent"), /registered|registration/i);
+  const portCheck = await evaluate(`(() => {
+    const row = [...document.querySelectorAll('#doctor-list .doctor-row')].find(item => item.querySelector('.dl').textContent === 'Port ${port}');
+    return {status:row.querySelector('.badge').className,detail:row.querySelector('.dd').textContent};
+  })()`);
+  assert.equal(portCheck.status, "badge pass", JSON.stringify(portCheck));
+  assert.match(portCheck.detail, /used by this bridge/);
   await evaluate("document.getElementById('doctor-close').click(); document.getElementById('toggle-btn').click()");
   await waitFor("document.getElementById('status-name').textContent === 'Stopped'");
   assert.equal(await evaluate("document.getElementById('check-m365-status').textContent"), "Not checked");
-  console.log(JSON.stringify({ result: "PASS", executable, port, profile, results }));
+  const stoppedPortCheck = await evaluate("window.bridgeAPI.runDoctor().then(results => results.find(result => result.id === 'port'))");
+  assert.equal(stoppedPortCheck.status, "pass");
+  assert.match(stoppedPortCheck.detail, /free/);
+  console.log(JSON.stringify({ result: "PASS", executable, port, profile, results, portCheck, stoppedPortCheck }));
   await command("Browser.close").catch(() => {});
 } finally {
+  if (socket?.readyState === WebSocket.OPEN) await stopBridge?.().catch(() => {});
   socket?.close();
   if (child.exitCode === null && child.signalCode === null) {
     child.kill();
