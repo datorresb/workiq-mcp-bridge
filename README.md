@@ -44,7 +44,9 @@ One running bridge serves both.
 
 A minimalist Windows tray app (Electron) under [`app/`](app/) that runs and monitors the bridge:
 
-![WorkIQ MCP Bridge — start the bridge, watch live health and logs, then copy a connect snippet](app/build/demo.gif)
+![WorkIQ MCP Bridge — real connection checks, Doctor, and Windows/Docker connection settings](app/build/demo.gif)
+
+Captured from the running Electron app using Playwright MCP. Logs are omitted for privacy; pauses are shortened. The displayed connection results are real, not mocked.
 
 - **Start/stop on demand** — no terminal to keep open; lives in the system tray.
 - **Watchdog** — restarts the bridge if it crashes; a manual stop stays stopped.
