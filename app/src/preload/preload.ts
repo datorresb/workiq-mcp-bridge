@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld("bridgeAPI", {
   stop: () => ipcRenderer.invoke("bridge:stop"),
   state: () => ipcRenderer.invoke("bridge:state"),
   metrics: () => ipcRenderer.invoke("bridge:metrics"),
+  testConnection: () => ipcRenderer.invoke("bridge:testConnection"),
   freePort: () => ipcRenderer.invoke("bridge:freePort"),
   getSettings: () => ipcRenderer.invoke("settings:get"),
   saveSettings: (patch: unknown) => ipcRenderer.invoke("settings:save", patch),
@@ -18,6 +19,7 @@ contextBridge.exposeInMainWorld("bridgeAPI", {
   onLog: (cb: Cb<string>) => ipcRenderer.on("bridge:log", (_e, line: string) => cb(line)),
   onStatus: (cb: Cb<string>) => ipcRenderer.on("bridge:status", (_e, s: string) => cb(s)),
   onMetrics: (cb: Cb<unknown>) => ipcRenderer.on("bridge:metrics", (_e, m: unknown) => cb(m)),
+  onConnectionTest: (cb: Cb<unknown>) => ipcRenderer.on("bridge:connectionTest", (_e, report: unknown) => cb(report)),
   onPortConflict: (cb: Cb<unknown>) =>
     ipcRenderer.on("bridge:portConflict", (_e, info: unknown) => cb(info)),
 });

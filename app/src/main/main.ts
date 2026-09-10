@@ -9,6 +9,7 @@ import { notify } from "./notifications";import { isPortInUse, findPortHolder, f
 import { runDoctor, fixFirewall, CheckResult } from "./doctor";
 import { registerIpc } from "./ipc";
 import { AppState, Metrics } from "./state";
+import { ConnectionReport, emptyConnectionReport, testConnection } from "./mcp";
 
 const APP_ID = "com.datorresb.workiq-bridge";
 
@@ -31,9 +32,12 @@ export class AppController {
   private conflictPid: number | null = null;
   private conflictHolderName: string | null = null;
   private lastMetrics: string | null = null;
+  private connectionAttempt: AbortController | null = null;
+  private connectionReport: ConnectionReport;
 
   constructor() {
     this.config = loadConfig();
+    this.connectionReport = emptyConnectionReport(this.config.port);
     this.log = new RollingLog(logFilePath());
     this.buildBridge();
   }
@@ -42,6 +46,8 @@ export class AppController {
     this.supervisor = new BridgeSupervisor({ port: this.config.port });
     this.health = new HealthPoller({ port: this.config.port });
 
+    this.supervisor.on("spawned", () => this.health.start());
+
     this.supervisor.on("log", (line: string) => {
       this.log.append(line);
       this.parseMetrics(line);
@@ -49,6 +55,10 @@ export class AppController {
     });
 
     this.supervisor.on("status", (status: BridgeStatus) => {
+      if (status === "stopped" || status === "starting" || status === "restarting") {
+        this.resetConnectionTest();
+        this.healthy = false;
+      }
       if (status === "running" && this.runningSince === null) {
         this.runningSince = Date.now();
       }
@@ -58,8 +68,7 @@ export class AppController {
         this.requests = null;
         this.healthy = false;
       }
-      if (status === "running") this.health.start();
-      else if (status === "stopped") this.health.stop();
+      if (status === "stopped" || status === "restarting") this.health.stop();
 
       this.tray?.update(status);
       this.window?.webContents.send("bridge:status", status);
@@ -78,8 +87,11 @@ export class AppController {
       this.window?.webContents.send("bridge:log", line);
     });
 
+    this.health.on("diagnostic", (line: string) => this.supervisor.emit("log", line));
+
     this.health.on("health", (ok: boolean) => {
       this.healthy = ok;
+      if (!ok) this.resetConnectionTest();
       this.supervisor.markUnhealthy(!ok);
     });
   }
@@ -108,7 +120,33 @@ export class AppController {
   }
 
   stop(): Promise<void> {
+    this.resetConnectionTest();
     return this.supervisor.stop();
+  }
+
+  private resetConnectionTest(): void {
+    this.connectionAttempt?.abort();
+    this.connectionAttempt = null;
+    this.connectionReport = emptyConnectionReport(this.supervisor.activePort);
+    this.window?.webContents.send("bridge:connectionTest", this.connectionReport);
+  }
+
+  async testConnection(): Promise<ConnectionReport> {
+    if (this.connectionAttempt) throw new Error("A connection test is already running");
+    if (this.supervisor.status !== "running" && this.supervisor.status !== "unhealthy") {
+      throw new Error("Start the bridge before testing");
+    }
+    const controller = new AbortController();
+    this.connectionAttempt = controller;
+    try {
+      return await testConnection(this.supervisor.activePort, (report) => {
+        if (this.connectionAttempt !== controller) return;
+        this.connectionReport = report;
+        this.window?.webContents.send("bridge:connectionTest", report);
+      }, controller.signal);
+    } finally {
+      if (this.connectionAttempt === controller) this.connectionAttempt = null;
+    }
   }
 
   async freeConflict(): Promise<void> {
@@ -145,6 +183,8 @@ export class AppController {
     return {
       status: this.supervisor.status,
       healthy: this.healthy,
+      httpReady: this.health.httpReady,
+      toolCount: this.health.toolCount,
       uptimeMs: this.runningSince ? Date.now() - this.runningSince : 0,
       port:
         this.supervisor.status === "stopped"
@@ -156,7 +196,7 @@ export class AppController {
   }
 
   state(): AppState {
-    return { settings: this.config, metrics: this.metrics() };
+    return { settings: this.config, metrics: this.metrics(), connectionTest: this.connectionReport };
   }
 
   runDoctor(): Promise<CheckResult[]> {

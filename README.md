@@ -49,8 +49,10 @@ A minimalist Windows tray app (Electron) under [`app/`](app/) that runs and moni
 - **Start/stop on demand** — no terminal to keep open; lives in the system tray.
 - **Watchdog** — restarts the bridge if it crashes; a manual stop stays stopped.
 - **Live status, health, and logs** in one window.
+- **MCP readiness** — stays in Starting until initialization and tool discovery succeed; allows up to two minutes for WorkIQ's first response. Later polls check HTTP liveness, with MCP revalidation after a detected outage. This does not guarantee every WorkIQ tool succeeds.
 - **How to connect** — one click reveals the host or devcontainer MCP snippet, ready to copy.
-- **Doctor** — checks Node/npx, WorkIQ registration, firewall, and port; adds the firewall rule for you.
+- **Connection checks** — separate HTTP, MCP, and M365 results. **Test connection** runs `list_agents` to verify basic M365 access; until then, M365 stays **Not checked**. A successful basic test does not guarantee that `ask` or every other tool works.
+- **Doctor** — checks Node/npx, firewall, and port. No fixed registration reminder and no manual `npx` startup required; the bridge starts WorkIQ for you.
 - **Toast notifications** when the bridge goes down.
 
 ### Download
@@ -67,8 +69,10 @@ The build is unsigned, so Windows SmartScreen may warn on first run — choose *
 ```powershell
 cd app
 npm install
-npm start
+npm run dev
 ```
+
+The desktop app bundles supergateway 3.4.3 and applies the checked-in transport fix during install/build. A disconnected HTTP client no longer crashes the gateway while a response is being delivered. WorkIQ itself still runs through `npx` on Windows. These changes do not alter the standalone PowerShell launcher below.
 
 ### Build an installer / portable exe
 
@@ -78,6 +82,14 @@ npm run dist
 ```
 
 Outputs `WorkIQ MCP Bridge Setup <version>.exe` (installer) and `WorkIQ MCP Bridge-<version>-portable.exe` under `app/dist-package/`.
+
+To keep an existing unpacked build untouched, select a new output folder:
+
+```powershell
+npm run dist:portable -- --config.directories.output=dist-package/1.0.2
+```
+
+Run `npm test` for the isolated startup, readiness, and canceled-request regressions. With the desktop bridge running, `node smoke/00_handshake.mjs 3100` validates the same MCP handshake and tool discovery used by the app.
 
 ---
 

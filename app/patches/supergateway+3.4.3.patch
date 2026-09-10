@@ -1,0 +1,38 @@
+diff --git a/node_modules/supergateway/dist/gateways/stdioToStatelessStreamableHttp.js b/node_modules/supergateway/dist/gateways/stdioToStatelessStreamableHttp.js
+index d4f795e..b911f89 100644
+--- a/node_modules/supergateway/dist/gateways/stdioToStatelessStreamableHttp.js
++++ b/node_modules/supergateway/dist/gateways/stdioToStatelessStreamableHttp.js
+@@ -116,12 +116,10 @@ export async function stdioToStatelessStreamableHttp(args) {
+                                 initializeRequestId = null;
+                             }
+                         }
+-                        try {
+-                            transport.send(jsonMsg);
+-                        }
+-                        catch (e) {
+-                            logger.error(`Failed to send to StreamableHttp`, e);
+-                        }
++                        void transport.send(jsonMsg).catch((error) => {
++                            logger.error('Failed to send to StreamableHttp', error);
++                            void transport.close();
++                        });
+                     }
+                     catch {
+                         logger.error(`Child non-JSON: ${line}`);
+@@ -157,12 +155,16 @@ export async function stdioToStatelessStreamableHttp(args) {
+             };
+             transport.onclose = () => {
+                 logger.info('StreamableHttp connection closed');
++                child.stdin.end();
+                 child.kill();
+             };
+             transport.onerror = (err) => {
+                 logger.error(`StreamableHttp error:`, err);
+                 child.kill();
+             };
++            res.once('close', () => {
++                void transport.close();
++            });
+             await transport.handleRequest(req, res, req.body);
+         }
+         catch (error) {

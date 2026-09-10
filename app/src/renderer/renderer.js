@@ -8,6 +8,11 @@
   const MAX_LOG_LINES = 500;
   const logLines = [];
   let conflictPid = null;
+  let currentStatus = "stopped";
+  let currentMetrics = null;
+  let connectionReport = null;
+  let testing = false;
+  let testSequence = 0;
 
   const $ = (id) => document.getElementById(id);
 
@@ -45,10 +50,18 @@
   }
 
   function isActive(status) {
-    return status === "running" || status === "unhealthy" || status === "restarting";
+    return status === "starting" || status === "running" || status === "unhealthy" || status === "restarting";
   }
 
   function renderStatus(status) {
+    if (status !== currentStatus && (status === "stopped" || status === "starting" || status === "restarting")) {
+      connectionReport = null;
+      currentMetrics = null;
+      testing = false;
+      testSequence += 1;
+      $("connection-error").classList.add("hidden");
+    }
+    currentStatus = status;
     const dot = $("dot");
     if (dot) dot.className = "dot " + status;
     const name = $("status-name");
@@ -63,23 +76,43 @@
         toggle.className = "btn start";
       }
     }
+    renderConnection();
+  }
+
+  function renderConnection() {
+    const metrics = currentMetrics;
+    const active = isActive(currentStatus);
+    const http = metrics && metrics.httpReady
+      ? { status: "pass", detail: "Port " + metrics.port }
+      : { status: active ? (currentStatus === "unhealthy" ? "fail" : "checking") : "idle", detail: "" };
+    const mcp = metrics && metrics.healthy && metrics.toolCount != null
+      ? { status: "pass", detail: metrics.toolCount + " tools" }
+      : { status: currentStatus === "unhealthy" ? "fail" : (active && http.status === "pass" ? "checking" : "idle"), detail: "" };
+    const checks = { http, mcp, m365: { status: "idle", detail: "" } };
+    if (active && connectionReport && connectionReport.http.status !== "idle" && (!metrics || connectionReport.port === metrics.port)) {
+      for (const key of ["http", "mcp", "m365"]) {
+        checks[key] = connectionReport[key];
+      }
+    }
+    for (const key of ["http", "mcp", "m365"]) {
+      const check = checks[key];
+      const status = $("check-" + key + "-status");
+      status.className = "check-status " + check.status;
+      status.textContent = ({ idle: "Not checked", checking: "Checking...", pass: "OK", fail: "Failed" })[check.status];
+      $("check-" + key + "-detail").textContent = check.detail === "Not checked" ? "" : check.detail;
+    }
+    const button = $("test-connection");
+    button.disabled = testing || (currentStatus !== "running" && currentStatus !== "unhealthy");
+    button.textContent = testing ? "Testing..." : "Test connection";
+    $("connection-results").setAttribute("aria-busy", String(testing));
   }
 
   function renderMetrics(m) {
     if (!m) return;
-    const health = $("m-health");
-    if (health) {
-      if (m.status === "running" && m.healthy) {
-        health.textContent = "✓ OK";
-        health.className = "v ok";
-      } else if (m.status === "unhealthy") {
-        health.textContent = "✗ Down";
-        health.className = "v bad";
-      } else {
-        health.textContent = "—";
-        health.className = "v";
-      }
+    if (currentMetrics && (m.port !== currentMetrics.port || (currentMetrics.httpReady && !m.httpReady))) {
+      connectionReport = null;
     }
+    currentMetrics = m;
     const up = $("m-uptime");
     if (up) up.textContent = m.status === "stopped" ? "—" : fmtUptime(m.uptimeMs);
     const clients = $("m-clients");
@@ -88,10 +121,12 @@
     if (requests) requests.textContent = m.requests == null ? "n/a" : String(m.requests);
     const endpoint = $("endpoint");
     if (endpoint) endpoint.textContent = "http://localhost:" + m.port + "/mcp";
+    $("endpoint-container").textContent = "http://host.docker.internal:" + m.port + "/mcp";
     if (window.__bridgePort !== m.port) {
       window.__bridgePort = m.port;
       if (window.__refreshConnect) window.__refreshConnect();
     }
+    renderConnection();
   }
 
   function applySettings(s) {
@@ -150,6 +185,27 @@
   }
 
   function wire() {
+    $("test-connection").addEventListener("click", async function () {
+      if (testing) return;
+      const sequence = ++testSequence;
+      testing = true;
+      connectionReport = null;
+      $("connection-error").classList.add("hidden");
+      renderConnection();
+      try {
+        await api.testConnection();
+      } catch (error) {
+        if (sequence !== testSequence) return;
+        $("connection-error").textContent = error.message || String(error);
+        $("connection-error").classList.remove("hidden");
+      } finally {
+        if (sequence === testSequence) {
+          testing = false;
+          renderConnection();
+        }
+      }
+    });
+
     const toggle = $("toggle-btn");
     if (toggle) {
       toggle.addEventListener("click", function () {
@@ -230,6 +286,10 @@
       if (isActive(status)) hideConflict();
     });
     api.onMetrics(renderMetrics);
+    api.onConnectionTest(function (report) {
+      connectionReport = report;
+      renderConnection();
+    });
     api.onPortConflict(showConflict);
   }
 
@@ -240,6 +300,7 @@
       const state = await api.state();
       applySettings(state.settings);
       renderStatus(state.metrics.status);
+      connectionReport = state.connectionTest || null;
       renderMetrics(state.metrics);
     } catch {
       /* main not ready yet */

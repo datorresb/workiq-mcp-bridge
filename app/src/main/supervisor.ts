@@ -69,8 +69,12 @@ export class BridgeSupervisor extends EventEmitter {
   }
 
   markUnhealthy(unhealthy: boolean): void {
-    if (this._status === "running" && unhealthy) this.setStatus("unhealthy");
-    else if (this._status === "unhealthy" && !unhealthy) this.setStatus("running");
+    if (this._status === "stopped") return;
+    if (unhealthy) this.setStatus("unhealthy");
+    else if (this._status !== "running") {
+      this.setStatus("running");
+      this.armStableTimer();
+    }
   }
 
   private setStatus(status: BridgeStatus): void {
@@ -79,28 +83,24 @@ export class BridgeSupervisor extends EventEmitter {
     this.emit("status", status);
   }
 
-  private buildCommand(): string {
-    // shell: true is the robust way to launch npx on Windows — a bare
-    // npx/npx.cmd spawn fails without a shell. tree-kill /T still reaps the tree.
+  private buildArguments(): string[] {
     return [
-      "npx",
-      "-y",
-      "supergateway",
+      require.resolve("supergateway/dist/index.js").replace(/app\.asar([\\/])/, "app.asar.unpacked$1"),
       "--stdio",
-      '"npx -y @microsoft/workiq mcp"',
+      "npx -y @microsoft/workiq mcp",
       "--port",
       String(this.options.port),
       "--outputTransport",
       "streamableHttp",
       "--healthEndpoint",
       "/healthz",
-    ].join(" ");
+    ];
   }
 
   private spawnChild(): void {
     this.setStatus(this._status === "stopped" ? "starting" : "restarting");
-    const child = spawn(this.buildCommand(), {
-      shell: true,
+    const child = spawn(process.execPath, this.buildArguments(), {
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -110,8 +110,7 @@ export class BridgeSupervisor extends EventEmitter {
     child.stderr?.on("data", (d: Buffer) => this.emitLog(d));
 
     child.on("spawn", () => {
-      this.setStatus("running");
-      this.armStableTimer();
+      this.emit("spawned");
     });
 
     child.on("error", (err: Error) => {

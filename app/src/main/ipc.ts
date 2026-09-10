@@ -8,6 +8,7 @@ export function registerIpc(controller: AppController): void {
   ipcMain.handle("bridge:stop", () => controller.stop());
   ipcMain.handle("bridge:state", () => controller.state());
   ipcMain.handle("bridge:metrics", () => controller.metrics());
+  ipcMain.handle("bridge:testConnection", () => controller.testConnection());
   ipcMain.handle("bridge:freePort", () => controller.freeConflict());
 
   ipcMain.handle("settings:get", () => controller.config);
